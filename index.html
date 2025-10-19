@@ -1,0 +1,160 @@
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>ComiOnline - Calculadora de Crédito</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      /* ComiOnline color scheme */
+      :root {
+        --comi-green: #0b5f3b;
+        --comi-orange: #f39c2e;
+      }
+      body { background: linear-gradient(180deg, var(--comi-green) 0%, white 40%); }
+    </style>
+  </head>
+  <body class="min-h-screen font-sans">
+    <div class="max-w-3xl mx-auto mt-8 bg-white rounded-2xl shadow-lg overflow-hidden">
+      <header class="p-6" style="background:var(--comi-green); color:white;">
+        <div class="flex items-center gap-4">
+          <div class="rounded-full bg-white p-2" style="width:56px;height:56px;">
+            <!-- placeholder logo -->
+            <svg viewBox="0 0 24 24" class="w-full h-full">
+              <circle cx="12" cy="12" r="10" fill="#0b5f3b"></circle>
+              <text x="12" y="16" font-size="10" text-anchor="middle" fill="white" font-family="sans-serif">C</text>
+            </svg>
+          </div>
+          <div>
+            <h1 class="text-2xl font-semibold">ComiOnline</h1>
+            <p class="text-sm opacity-90">Calculadora de Crédito</p>
+          </div>
+        </div>
+      </header>
+
+      <main class="p-6">
+        <form id="calcForm" class="grid grid-cols-1 gap-4">
+          <div>
+            <label class="block text-sm font-medium">Monto del préstamo (COP)</label>
+            <input id="principal" type="number" step="0.01" required class="mt-1 block w-full border rounded p-2" placeholder="Ej: 1000000" />
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium">Tasa anual (%)</label>
+              <input id="rate" type="number" step="0.01" required class="mt-1 block w-full border rounded p-2" placeholder="Ej: 24" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium">Plazo (meses)</label>
+              <input id="months" type="number" required class="mt-1 block w-full border rounded p-2" placeholder="Ej: 12" />
+            </div>
+          </div>
+
+          <div class="flex gap-2">
+            <button class="px-4 py-2 rounded-full text-white" id="calculateBtn" style="background:var(--comi-orange)">Calcular</button>
+            <button type="button" id="downloadCsv" class="px-4 py-2 rounded-full border" style="border-color:var(--comi-green); color:var(--comi-green)">Descargar tabla</button>
+          </div>
+        </form>
+
+        <section id="results" class="mt-6 hidden">
+          <h2 class="text-lg font-semibold">Resultados</h2>
+          <div class="mt-2 grid grid-cols-2 gap-4">
+            <div class="bg-gray-50 p-4 rounded">
+              <div class="text-sm text-gray-600">Pago mensual</div>
+              <div id="monthly" class="text-2xl font-bold">$0</div>
+            </div>
+            <div class="bg-gray-50 p-4 rounded">
+              <div class="text-sm text-gray-600">Interés total</div>
+              <div id="totalInterest" class="text-2xl font-bold">$0</div>
+            </div>
+          </div>
+
+          <div class="mt-4">
+            <button id="generateTicket" class="px-4 py-2 rounded-full" style="background:var(--comi-green); color:white;">Generar ticket (QR)</button>
+          </div>
+
+          <div id="qrContainer" class="mt-4 hidden">
+            <h3 class="font-medium">Ticket generado</h3>
+            <img id="qrImage" class="mt-2 border rounded" alt="QR ticket" />
+            <pre id="payload" class="mt-2 text-xs bg-gray-100 p-2 rounded"></pre>
+          </div>
+        </section>
+      </main>
+
+      <footer class="p-4 text-center text-sm text-gray-500">
+        Proyecto plantilla — lista para subir a GitHub y desplegar en Zeabur.
+      </footer>
+    </div>
+
+    <script>
+      const apiBase = location.hostname === 'localhost' ? 'http://localhost:3000' : window.location.origin;
+
+      async function postJson(path, body) {
+        const res = await fetch(apiBase + path, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        return res;
+      }
+
+      document.getElementById('calculateBtn').addEventListener('click', async (e) => {
+        e.preventDefault();
+        const principal = Number(document.getElementById('principal').value);
+        const rate = Number(document.getElementById('rate').value);
+        const months = Number(document.getElementById('months').value);
+        const res = await postJson('/api/calculate', { principal, annualRatePct: rate, months });
+        if (!res.ok) {
+          alert('Error en cálculo');
+          return;
+        }
+        const data = await res.json();
+        document.getElementById('monthly').innerText = '$' + data.monthlyPayment.toLocaleString();
+        document.getElementById('totalInterest').innerText = '$' + data.totalInterest.toLocaleString();
+        document.getElementById('results').classList.remove('hidden');
+        window._lastCalculation = { principal, rate, months, data };
+      });
+
+      document.getElementById('downloadCsv').addEventListener('click', async () => {
+        if (!window._lastCalculation) {
+          alert('Primero realice un cálculo');
+          return;
+        }
+        const { principal, rate, months } = window._lastCalculation;
+        const res = await postJson('/api/schedule-csv', { principal, annualRatePct: rate, months });
+        if (!res.ok) {
+          alert('Error generando CSV');
+          return;
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'amortization.csv';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      });
+
+      document.getElementById('generateTicket').addEventListener('click', async () => {
+        if (!window._lastCalculation) {
+          alert('Primero realice un cálculo');
+          return;
+        }
+        const name = prompt('Nombre del titular para el ticket', 'Cliente ComiOnline');
+        if (!name) return;
+        const amount = window._lastCalculation.principal;
+        const res = await postJson('/api/generate-ticket', { name, amount });
+        if (!res.ok) {
+          alert('Error generando ticket');
+          return;
+        }
+        const { qrDataUrl, payload } = await res.json();
+        document.getElementById('qrImage').src = qrDataUrl;
+        document.getElementById('payload').innerText = JSON.stringify(payload, null, 2);
+        document.getElementById('qrContainer').classList.remove('hidden');
+      });
+    </script>
+  </body>
+</html>
